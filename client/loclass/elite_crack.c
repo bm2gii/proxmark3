@@ -40,7 +40,8 @@
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
-#include <time.h>
+#include "util.h"
+#include "util_posix.h"
 #include "cipherutils.h"
 #include "cipher.h"
 #include "ikeys.h"
@@ -512,7 +513,7 @@ int bruteforceDump(uint8_t dump[], size_t dumpsize, uint16_t keytable[])
 	uint8_t i;
 	int errors = 0;
 	size_t itemsize = sizeof(dumpdata);
-	clock_t t1 = clock();
+	uint64_t t1 = msclock();
 
 	dumpdata* attack = (dumpdata* ) malloc(itemsize);
 
@@ -522,9 +523,9 @@ int bruteforceDump(uint8_t dump[], size_t dumpsize, uint16_t keytable[])
 		errors += bruteforceItem(*attack, keytable);
 	}
 	free(attack);
-	clock_t t2 = clock();
-	float diff = (((float)t2 - (float)t1) / CLOCKS_PER_SEC );
-	prnlog("\nPerformed full crack in %f seconds",diff);
+	t1 = msclock() - t1;
+	float diff = (float)t1 / 1000.0;
+	prnlog("\nPerformed full crack in %f seconds", diff);
 
 	// Pick out the first 16 bytes of the keytable.
 	// The keytable is now in 16-bit ints, where the upper 8 bits
@@ -563,15 +564,23 @@ int bruteforceFile(const char *filename, uint16_t keytable[])
 	long fsize = ftell(f);
 	fseek(f, 0, SEEK_SET);
 
+	if (fsize < 0) {
+		prnlog("Error, when getting fsize");
+		fclose(f);
+		return 1;
+	}
+
 	uint8_t *dump = malloc(fsize);
 	size_t bytes_read = fread(dump, 1, fsize, f);
 
 	fclose(f);
-    if (bytes_read < fsize)
-    {
-        prnlog("Error, could only read %d bytes (should be %d)",bytes_read, fsize );
-    }
-	return bruteforceDump(dump,fsize,keytable);
+	if (bytes_read < fsize) {
+		prnlog("Error, could only read %d bytes (should be %d)",bytes_read, fsize );
+	}
+
+	uint8_t res = bruteforceDump(dump,fsize,keytable);
+	free(dump);
+	return res;
 }
 /**
  *

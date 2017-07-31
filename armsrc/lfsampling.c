@@ -10,8 +10,9 @@
 #include "apps.h"
 #include "util.h"
 #include "string.h"
-
 #include "lfsampling.h"
+#include "usb_cdc.h"	// for usb_poll_validate_length
+//#include "ticks.h"		// for StartTicks
 
 sample_config config = { 1, 8, 1, 95, 0 } ;
 
@@ -103,7 +104,6 @@ void LFSetupFPGAForADC(int divisor, bool lf_field)
 	FpgaSetupSsc();
 }
 
-
 /**
  * Does the sample acquisition. If threshold is specified, the actual sampling
  * is not commenced until the threshold has been reached.
@@ -119,13 +119,13 @@ void LFSetupFPGAForADC(int divisor, bool lf_field)
  * @param silent - is true, now outputs are made. If false, dbprints the status
  * @return the number of bits occupied by the samples.
  */
-uint32_t DoAcquisition(uint8_t decimation, uint32_t bits_per_sample, bool averaging, int trigger_threshold, bool silent)
+uint32_t DoAcquisition(uint8_t decimation, uint32_t bits_per_sample, bool averaging, int trigger_threshold, bool silent, int bufsize)
 {
 	//.
 	uint8_t *dest = BigBuf_get_addr();
-    int bufsize = BigBuf_max_traceLen();
+	bufsize = (bufsize > 0 && bufsize < BigBuf_max_traceLen()) ? bufsize : BigBuf_max_traceLen();
 
-	memset(dest, 0, bufsize);
+	//memset(dest, 0, bufsize); //creates issues with cmdread (marshmellow)
 
 	if(bits_per_sample < 1) bits_per_sample = 1;
 	if(bits_per_sample > 8) bits_per_sample = 8;
@@ -141,7 +141,7 @@ uint32_t DoAcquisition(uint8_t decimation, uint32_t bits_per_sample, bool averag
 	uint32_t sample_total_numbers =0 ;
 	uint32_t sample_total_saved =0 ;
 
-	while(!BUTTON_PRESS()) {
+	while(!BUTTON_PRESS() && !usb_poll_validate_length() ) {
 		WDT_HIT();
 		if (AT91C_BASE_SSC->SSC_SR & AT91C_SSC_TXRDY) {
 			AT91C_BASE_SSC->SSC_THR = 0x43;
@@ -154,9 +154,6 @@ uint32_t DoAcquisition(uint8_t decimation, uint32_t bits_per_sample, bool averag
 			if ((trigger_threshold > 0) && (sample < (trigger_threshold+128)) && (sample > (128-trigger_threshold))) // 
 				continue;
 		
-			//if (trigger_threshold > 0 && sample < trigger_threshold) // 
-				//continue;
-
 			trigger_threshold = 0;
 			sample_total_numbers++;
 
@@ -216,32 +213,39 @@ uint32_t DoAcquisition(uint8_t decimation, uint32_t bits_per_sample, bool averag
  */
 uint32_t DoAcquisition_default(int trigger_threshold, bool silent)
 {
-	return DoAcquisition(1,8,0,trigger_threshold,silent);
+	return DoAcquisition(1,8,0,trigger_threshold,silent,0);
 }
-uint32_t DoAcquisition_config( bool silent)
+uint32_t DoAcquisition_config(bool silent, int sample_size)
 {
 	return DoAcquisition(config.decimation
 				  ,config.bits_per_sample
 				  ,config.averaging
 				  ,config.trigger_threshold
-				  ,silent);
+				  ,silent
+				  ,sample_size);
 }
 
-uint32_t ReadLF(bool activeField, bool silent)
+uint32_t DoPartialAcquisition(int trigger_threshold, bool silent, int sample_size) {
+	return DoAcquisition(1,8,0,trigger_threshold,silent,sample_size);
+}
+
+uint32_t ReadLF(bool activeField, bool silent, int sample_size)
 {
 	if (!silent) printConfig();
 	LFSetupFPGAForADC(config.divisor, activeField);
 	// Now call the acquisition routine
-	return DoAcquisition_config(silent);
+	return DoAcquisition_config(silent, sample_size);
 }
 
 /**
 * Initializes the FPGA for reader-mode (field on), and acquires the samples.
 * @return number of bits sampled
 **/
-uint32_t SampleLF(bool printCfg)
+uint32_t SampleLF(bool printCfg, int sample_size)
 {
-	return ReadLF(true, printCfg);
+	uint32_t ret = ReadLF(true, printCfg, sample_size);
+	FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
+	return ret;
 }
 /**
 * Initializes the FPGA for snoop-mode (field off), and acquires the samples.
@@ -250,5 +254,129 @@ uint32_t SampleLF(bool printCfg)
 
 uint32_t SnoopLF()
 {
-	return ReadLF(false, true);
+	uint32_t ret = ReadLF(false, true, 0);
+	FpgaWriteConfWord(FPGA_MAJOR_MODE_OFF);
+	return ret;
+}
+
+/**
+* acquisition of Cotag LF signal. Similart to other LF,  since the Cotag has such long datarate RF/384
+* and is Manchester?,  we directly gather the manchester data into bigbuff
+**/
+#define COTAG_T1 384
+#define COTAG_T2 (COTAG_T1>>1)
+#define COTAG_ONE_THRESHOLD 128+30
+#define COTAG_ZERO_THRESHOLD 128-30
+#ifndef COTAG_BITS
+#define COTAG_BITS 264
+#endif
+void doCotagAcquisition(size_t sample_size) {
+
+	uint8_t *dest = BigBuf_get_addr();
+	uint16_t bufsize = BigBuf_max_traceLen();
+	
+	if ( bufsize > sample_size )
+		bufsize = sample_size;
+
+	dest[0] = 0;
+	uint8_t sample = 0, firsthigh = 0, firstlow = 0; 
+	uint16_t i = 0;
+
+	while (!BUTTON_PRESS() && !usb_poll_validate_length() && (i < bufsize) ) {
+		WDT_HIT();
+		if (AT91C_BASE_SSC->SSC_SR & AT91C_SSC_TXRDY) {
+			AT91C_BASE_SSC->SSC_THR = 0x43;
+			LED_D_ON();
+		}
+		
+		if (AT91C_BASE_SSC->SSC_SR & AT91C_SSC_RXRDY) {
+			sample = (uint8_t)AT91C_BASE_SSC->SSC_RHR;
+			LED_D_OFF();
+		
+			// find first peak
+			if ( !firsthigh ) {
+				if (sample < COTAG_ONE_THRESHOLD) 
+					continue;
+				firsthigh = 1;
+			}
+			if ( !firstlow ){
+				if (sample > COTAG_ZERO_THRESHOLD )
+					continue;
+				firstlow = 1;
+			}
+
+			++i;
+	
+			if ( sample > COTAG_ONE_THRESHOLD)
+				dest[i] = 255;
+			else if ( sample < COTAG_ZERO_THRESHOLD)
+				dest[i] = 0;
+			else 
+				dest[i] = dest[i-1];
+		}
+	}
+}
+
+uint32_t doCotagAcquisitionManchester() {
+
+	uint8_t *dest = BigBuf_get_addr();
+	uint16_t bufsize = BigBuf_max_traceLen();
+	
+	if ( bufsize > COTAG_BITS )
+		bufsize = COTAG_BITS;
+
+	dest[0] = 0;
+	uint8_t sample = 0, firsthigh = 0, firstlow = 0; 
+	uint16_t sample_counter = 0, period = 0;
+	uint8_t curr = 0, prev = 0;
+
+	while (!BUTTON_PRESS() && !usb_poll_validate_length() && (sample_counter < bufsize) ) {
+		WDT_HIT();
+		if (AT91C_BASE_SSC->SSC_SR & AT91C_SSC_TXRDY) {
+			AT91C_BASE_SSC->SSC_THR = 0x43;
+			LED_D_ON();
+		}
+
+		if (AT91C_BASE_SSC->SSC_SR & AT91C_SSC_RXRDY) {
+			sample = (uint8_t)AT91C_BASE_SSC->SSC_RHR;
+			LED_D_OFF();
+
+			// find first peak
+			if ( !firsthigh ) {
+				if (sample < COTAG_ONE_THRESHOLD) 
+					continue;
+				firsthigh = 1;
+			}
+
+			if ( !firstlow ){
+				if (sample > COTAG_ZERO_THRESHOLD )
+					continue;
+				firstlow = 1;
+			}
+
+			// set sample 255, 0,  or previous
+			if ( sample > COTAG_ONE_THRESHOLD){
+				prev = curr;
+				curr = 1;
+			}
+			else if ( sample < COTAG_ZERO_THRESHOLD) {
+				prev = curr;
+				curr = 0;
+			}
+			else {
+				curr = prev;
+			}
+
+			// full T1 periods, 
+			if ( period > 0 ) {
+				--period;
+				continue;
+			}
+
+			dest[sample_counter] = curr;
+			++sample_counter;
+			period = COTAG_T1;
+		}
+	}
+	return sample_counter;
 }

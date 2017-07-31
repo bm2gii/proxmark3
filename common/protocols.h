@@ -109,19 +109,24 @@ NXP/Philips CUSTOM COMMANDS
 #define ISO14443A_CMD_WUPA       0x52
 #define ISO14443A_CMD_ANTICOLL_OR_SELECT     0x93
 #define ISO14443A_CMD_ANTICOLL_OR_SELECT_2   0x95
+#define ISO14443A_CMD_ANTICOLL_OR_SELECT_3   0x97
 #define ISO14443A_CMD_WRITEBLOCK 0xA0 // or 0xA2 ?
 #define ISO14443A_CMD_HALT       0x50
 #define ISO14443A_CMD_RATS       0xE0
 
-#define MIFARE_AUTH_KEYA	    0x60
-#define MIFARE_AUTH_KEYB	    0x61
-#define MIFARE_MAGICWUPC1	    0x40
-#define MIFARE_MAGICWUPC2		0x43
-#define MIFARE_MAGICWIPEC		0x41
+#define MIFARE_AUTH_KEYA        0x60
+#define MIFARE_AUTH_KEYB        0x61
+#define MIFARE_MAGICWUPC1       0x40
+#define MIFARE_MAGICWUPC2       0x43
+#define MIFARE_MAGICWIPEC       0x41
 #define MIFARE_CMD_INC          0xC0
 #define MIFARE_CMD_DEC          0xC1
 #define MIFARE_CMD_RESTORE      0xC2
 #define MIFARE_CMD_TRANSFER     0xB0
+
+#define MIFARE_EV1_PERSONAL_UID 0x40
+#define MIFARE_EV1_SETMODE      0x43
+
 
 #define MIFARE_ULC_WRITE        0xA2
 //#define MIFARE_ULC__COMP_WRITE  0xA0
@@ -210,8 +215,92 @@ NXP/Philips CUSTOM COMMANDS
 #define FUSE_FPROD0  0x02
 #define FUSE_RA      0x01
 
-
 void printIclassDumpInfo(uint8_t* iclass_dump);
 void getMemConfig(uint8_t mem_cfg, uint8_t chip_cfg, uint8_t *max_blk, uint8_t *app_areas, uint8_t *kb);
 
-#endif // PROTOCOLS_H
+/* T55x7 configuration register definitions */
+#define T55x7_POR_DELAY             0x00000001
+#define T55x7_ST_TERMINATOR         0x00000008
+#define T55x7_PWD                   0x00000010
+#define T55x7_MAXBLOCK_SHIFT        5
+#define T55x7_AOR                   0x00000200
+#define T55x7_PSKCF_RF_2            0
+#define T55x7_PSKCF_RF_4            0x00000400
+#define T55x7_PSKCF_RF_8            0x00000800
+#define T55x7_MODULATION_DIRECT     0
+#define T55x7_MODULATION_PSK1       0x00001000
+#define T55x7_MODULATION_PSK2       0x00002000
+#define T55x7_MODULATION_PSK3       0x00003000
+#define T55x7_MODULATION_FSK1       0x00004000
+#define T55x7_MODULATION_FSK2       0x00005000
+#define T55x7_MODULATION_FSK1a      0x00006000
+#define T55x7_MODULATION_FSK2a      0x00007000
+#define T55x7_MODULATION_MANCHESTER 0x00008000
+#define T55x7_MODULATION_BIPHASE    0x00010000
+#define T55x7_MODULATION_DIPHASE    0x00018000
+#define T55x7_X_MODE                0x00020000
+#define T55x7_BITRATE_RF_8          0
+#define T55x7_BITRATE_RF_16         0x00040000
+#define T55x7_BITRATE_RF_32         0x00080000
+#define T55x7_BITRATE_RF_40         0x000C0000
+#define T55x7_BITRATE_RF_50         0x00100000
+#define T55x7_BITRATE_RF_64         0x00140000
+#define T55x7_BITRATE_RF_100        0x00180000
+#define T55x7_BITRATE_RF_128        0x001C0000
+
+/* T5555 (Q5) configuration register definitions */
+#define T5555_ST_TERMINATOR         0x00000001
+#define T5555_MAXBLOCK_SHIFT        0x00000001
+#define T5555_MODULATION_MANCHESTER 0
+#define T5555_MODULATION_PSK1       0x00000010
+#define T5555_MODULATION_PSK2       0x00000020
+#define T5555_MODULATION_PSK3       0x00000030
+#define T5555_MODULATION_FSK1       0x00000040
+#define T5555_MODULATION_FSK2       0x00000050
+#define T5555_MODULATION_BIPHASE    0x00000060
+#define T5555_MODULATION_DIRECT     0x00000070
+#define T5555_INVERT_OUTPUT         0x00000080
+#define T5555_PSK_RF_2              0
+#define T5555_PSK_RF_4              0x00000100
+#define T5555_PSK_RF_8              0x00000200
+#define T5555_USE_PWD               0x00000400
+#define T5555_USE_AOR               0x00000800
+#define T5555_SET_BITRATE(x)        (((x-2)/2)<<12)
+#define T5555_GET_BITRATE(x)        ((((x >> 12) & 0x3F)*2)+2)
+#define T5555_BITRATE_SHIFT         12 //(RF=2n+2)   ie 64=2*0x1F+2   or n = (RF-2)/2
+#define T5555_FAST_WRITE            0x00004000
+#define T5555_PAGE_SELECT           0x00008000
+
+#define T55XX_WRITE_TIMEOUT 1500
+
+uint32_t GetT55xxClockBit(uint32_t clock);
+
+// em4x05 & em4x69 chip configuration register definitions
+#define EM4x05_GET_BITRATE(x)         (((x & 0x3F)*2)+2)
+#define EM4x05_SET_BITRATE(x)         ((x-2)/2)
+#define EM4x05_MODULATION_NRZ         0x00000000
+#define EM4x05_MODULATION_MANCHESTER  0x00000040
+#define EM4x05_MODULATION_BIPHASE     0x00000080
+#define EM4x05_MODULATION_MILLER      0x000000C0 //not supported by all 4x05/4x69 chips
+#define EM4x05_MODULATION_PSK1        0x00000100 //not supported by all 4x05/4x69 chips
+#define EM4x05_MODULATION_PSK2        0x00000140 //not supported by all 4x05/4x69 chips
+#define EM4x05_MODULATION_PSK3        0x00000180 //not supported by all 4x05/4x69 chips
+#define EM4x05_MODULATION_FSK1        0x00000200 //not supported by all 4x05/4x69 chips
+#define EM4x05_MODULATION_FSK2        0x00000240 //not supported by all 4x05/4x69 chips
+#define EM4x05_PSK_RF_2               0
+#define EM4x05_PSK_RF_4               0x00000400
+#define EM4x05_PSK_RF_8               0x00000800
+#define EM4x05_MAXBLOCK_SHIFT         14
+#define EM4x05_FIRST_USER_BLOCK       5
+#define EM4x05_SET_NUM_BLOCKS(x)      ((x+5-1)<<14) //# of blocks sent during default read mode
+#define EM4x05_GET_NUM_BLOCKS(x)      (((x>>14) & 0xF)-5+1)
+#define EM4x05_READ_LOGIN_REQ         1<<18
+#define EM4x05_READ_HK_LOGIN_REQ      1<<19
+#define EM4x05_WRITE_LOGIN_REQ        1<<20
+#define EM4x05_WRITE_HK_LOGIN_REQ     1<<21
+#define EM4x05_READ_AFTER_WRITE       1<<22
+#define EM4x05_DISABLE_ALLOWED        1<<23
+#define EM4x05_READER_TALK_FIRST      1<<24
+
+#endif 
+// PROTOCOLS_H

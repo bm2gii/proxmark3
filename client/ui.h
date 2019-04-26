@@ -14,17 +14,20 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define MAX_PRINT_BUFFER 2048
+typedef enum logLevel {NORMAL, SUCCESS, INFO, FAILED, WARNING, ERR, DEBUG} logLevel_t;
+
 void ShowGui(void);
 void HideGraphWindow(void);
 void ShowGraphWindow(void);
 void RepaintGraphWindow(void);
 void PrintAndLog(char *fmt, ...);
+void PrintAndLogEx(logLevel_t level, char *fmt, ...);
 void SetLogFilename(char *fn);
+void SetFlushAfterWrite(bool flush_after_write);
 
 extern double CursorScaleFactor;
 extern int PlotGridX, PlotGridY, PlotGridXdefault, PlotGridYdefault, CursorCPos, CursorDPos, GridOffset;
-extern int offline;
-extern int flushAfterWrite;   //buzzy
 extern bool GridLocked;
 extern bool showDemod;
 

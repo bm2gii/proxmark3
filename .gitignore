@@ -12,14 +12,17 @@
 *.map
 *.bin
 !client/hardnested/*.bin
+!client/sc_upgrade_firmware/*.bin
 *.dll
 *.moc.cpp
 *.z
 !client/hardnested/tables/*.z
 usb_cmd.lua
 version.c
+armsrc/fpga_version_info.c
 client/ui/ui_overlays.h
 *.Td
+.DS_Store
 
 *.exe
 hardnested_stats.txt

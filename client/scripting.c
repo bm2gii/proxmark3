@@ -15,17 +15,18 @@
 #include <lualib.h>
 #include <lauxlib.h>
 #include "proxmark3.h"
+#include "comms.h"
 #include "usb_cmd.h"
 #include "cmdmain.h"
 #include "util.h"
-#include "mifarehost.h"
+#include "mifare/mifarehost.h"
 #include "../common/iso15693tools.h"
 #include "iso14443crc.h"
 #include "../common/crc16.h"
 #include "../common/crc64.h"
-#include "../common/sha1.h"
-#include "aes.h"
-#include "cmdcrc.h"
+#include <mbedtls/sha1.h>
+#include <mbedtls/aes.h>
+
 /**
  * The following params expected:
  *  UsbCommand c
@@ -220,7 +221,7 @@ static int l_iso14443b_crc(lua_State *L)
 	unsigned char buf[USB_CMD_DATA_SIZE];
 	size_t len = 0;
 	const char *data = luaL_checklstring(L, 1, &len);
-	if (USB_CMD_DATA_SIZE < len)
+	if (len > USB_CMD_DATA_SIZE-2)
 		len =  USB_CMD_DATA_SIZE-2;
 
 	for (int i = 0; i < len; i += 2) {
@@ -256,10 +257,10 @@ static int l_aes128decrypt_cbc(lua_State *L)
 		sscanf(&p_key[i], "%02x", (unsigned int *)&aes_key[i / 2]);
 	}
 
-	aes_context ctx;
-	aes_init(&ctx);
-	aes_setkey_dec(&ctx, aes_key, 128);
-	aes_crypt_cbc(&ctx,AES_DECRYPT,sizeof(indata), iv, indata,outdata );
+	mbedtls_aes_context ctx;
+	mbedtls_aes_init(&ctx);
+	mbedtls_aes_setkey_dec(&ctx, aes_key, 128);
+	mbedtls_aes_crypt_cbc(&ctx, MBEDTLS_AES_DECRYPT, sizeof(indata), iv, indata,outdata );
 	//Push decrypted array as a string
 	lua_pushlstring(L,(const char *)&outdata, sizeof(outdata));
 	return 1;// return 1 to signal one return value
@@ -283,10 +284,10 @@ static int l_aes128decrypt_ecb(lua_State *L)
 		sscanf(&p_encTxt[i], "%02x", (unsigned int *)&indata[i / 2]);
 		sscanf(&p_key[i], "%02x", (unsigned int *)&aes_key[i / 2]);
 	}
-	aes_context ctx;
-	aes_init(&ctx);
-	aes_setkey_dec(&ctx, aes_key, 128);
-	aes_crypt_ecb(&ctx, AES_DECRYPT, indata, outdata );
+	mbedtls_aes_context ctx;
+	mbedtls_aes_init(&ctx);
+	mbedtls_aes_setkey_dec(&ctx, aes_key, 128);
+	mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_DECRYPT, indata, outdata );
 
 	//Push decrypted array as a string
 	lua_pushlstring(L,(const char *)&outdata, sizeof(outdata));
@@ -313,10 +314,10 @@ static int l_aes128encrypt_cbc(lua_State *L)
 		sscanf(&p_key[i], "%02x", (unsigned int *)&aes_key[i / 2]);
 	}
 
-	aes_context ctx;
-	aes_init(&ctx);
-	aes_setkey_enc(&ctx, aes_key, 128);
-	aes_crypt_cbc(&ctx, AES_ENCRYPT, sizeof(indata), iv, indata, outdata );
+	mbedtls_aes_context ctx;
+	mbedtls_aes_init(&ctx);
+	mbedtls_aes_setkey_enc(&ctx, aes_key, 128);
+	mbedtls_aes_crypt_cbc(&ctx, MBEDTLS_AES_ENCRYPT, sizeof(indata), iv, indata, outdata );
 	//Push encrypted array as a string
 	lua_pushlstring(L,(const char *)&outdata, sizeof(outdata));
 	return 1;// return 1 to signal one return value
@@ -340,10 +341,10 @@ static int l_aes128encrypt_ecb(lua_State *L)
 		sscanf(&p_txt[i], "%02x", (unsigned int *)&indata[i / 2]);
 		sscanf(&p_key[i], "%02x", (unsigned int *)&aes_key[i / 2]);
 	}
-	aes_context ctx;
-	aes_init(&ctx);
-	aes_setkey_enc(&ctx, aes_key, 128);
-	aes_crypt_ecb(&ctx, AES_ENCRYPT, indata, outdata );
+	mbedtls_aes_context ctx;
+	mbedtls_aes_init(&ctx);
+	mbedtls_aes_setkey_enc(&ctx, aes_key, 128);
+	mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, indata, outdata );
 	//Push encrypted array as a string
 	lua_pushlstring(L,(const char *)&outdata, sizeof(outdata));
 	return 1;// return 1 to signal one return value
@@ -386,64 +387,8 @@ static int l_sha1(lua_State *L)
 	size_t size;
 	const char *p_str = luaL_checklstring(L, 1, &size);
 	unsigned char outdata[20] = {0x00};
-	sha1( (uint8_t*) p_str, size, outdata);
+	mbedtls_sha1( (uint8_t*) p_str, size, outdata);
 	lua_pushlstring(L,(const char *)&outdata, sizeof(outdata));
-	return 1;
-}
-
-static int l_reveng_models(lua_State *L){
-
-	char *models[80];
-	int count = 0;
-	int in_width = luaL_checkinteger(L, 1);
-	
-	if( in_width > 89 ) return returnToLuaWithError(L,"Width cannot exceed 89, got %d", in_width);
-
-	uint8_t width[80];
-	width[0] = (uint8_t)in_width;
-	int ans = GetModels(models, &count, width);
-	if (!ans) return 0;
-	
-	lua_newtable(L);
-	
-	for (int i = 0; i < count; i++){
-		lua_pushstring(L,  (const char*)models[i]);
-		lua_rawseti(L,-2,i+1);
-		free(models[i]);
-	}
-
-	return 1;
-}
-
-//Called with 4 parameters.
-// inModel   ,string containing the crc model name: 'CRC-8'
-// inHexStr  ,string containing the hex representation of the data that will be used for CRC calculations.
-// reverse   ,int 0/1  (bool) if 1, calculate the reverse CRC
-// endian    ,char,  'B','b','L','l','t','r' describing if Big-Endian or Little-Endian should be used in different combinations.
-//
-// outputs:  string with hex representation of the CRC result
-static int l_reveng_RunModel(lua_State *L){
-	//-c || -v
-	//inModel = valid model name string - CRC-8
-	//inHexStr = input hex string to calculate crc on
-	//reverse = reverse calc option if true
-	//endian = {0 = calc default endian input and output, b = big endian input and output, B = big endian output, r = right justified
-	//          l = little endian input and output, L = little endian output only, t = left justified}
-	//result = calculated crc hex string	
-	char result[50];
-	
-	const char *inModel = luaL_checkstring(L, 1);
-	const char *inHexStr = luaL_checkstring(L, 2);
-	bool reverse =  lua_toboolean(L, 3);
-	const char endian = luaL_checkstring(L, 4)[0];
-
-	//PrintAndLog("mod: %s, hex: %s, rev %d", inModel, inHexStr, reverse);
-	//int RunModel(char *inModel, char *inHexStr, bool reverse, char endian, char *result)
-	int ans = RunModel( (char *)inModel, (char *)inHexStr, reverse, endian, result);
-	if (!ans) 	
-		return returnToLuaWithError(L,"Reveng failed");
-
-	lua_pushstring(L, (const char*)result); 
 	return 1;
 }
 
@@ -493,8 +438,6 @@ int set_pm3_libraries(lua_State *L)
 		{"crc16",                       l_crc16},
 		{"crc64",                       l_crc64},
 		{"sha1",                        l_sha1},
-		{"reveng_models",               l_reveng_models},
-		{"reveng_runmodel",             l_reveng_RunModel},
 		{NULL, NULL}
 	};
 

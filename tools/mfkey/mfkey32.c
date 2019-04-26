@@ -3,14 +3,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "crapto1/crapto1.h"
-#include "mfkey.h"
+#include "mifare/mfkey.h"
 #include "util_posix.h"
 
 
 // 32 bit recover key from 2 nonces
 int main (int argc, char *argv[]) {
 
-  nonces_t data;
+  nonces_t data = {0};
   uint32_t ks2;     // keystream used to encrypt reader response
   uint64_t key;     // recovered key
 

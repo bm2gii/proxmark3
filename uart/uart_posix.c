@@ -2,6 +2,7 @@
  * Generic uart / rs232/ serial port library
  *
  * Copyright (c) 2013, Roel Verdult
+ * Copyright (c) 2018 Google
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -32,10 +33,12 @@
  * proxmark3 project.
  */
 
-#include "uart.h"
-
 // Test if we are dealing with posix operating systems
 #ifndef _WIN32
+#define _DEFAULT_SOURCE
+
+#include "uart.h"
+
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -45,6 +48,18 @@
 #include <limits.h>
 #include <sys/time.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+
+// Fix missing definition on OS X.
+// Taken from https://github.com/unbit/uwsgi/commit/b608eb1772641d525bfde268fe9d6d8d0d5efde7
+#ifndef SOL_TCP
+#define SOL_TCP IPPROTO_TCP
+#endif
 
 typedef struct termios term_info;
 typedef struct {
@@ -54,7 +69,7 @@ typedef struct {
 } serial_port_unix;
 
 // Set time-out on 30 miliseconds
-const struct timeval timeout = {
+struct timeval timeout = {
   .tv_sec  =     0, // 0 second
   .tv_usec = 30000  // 30000 micro seconds
 };
@@ -64,6 +79,59 @@ serial_port uart_open(const char* pcPortName)
   serial_port_unix* sp = malloc(sizeof(serial_port_unix));
   if (sp == 0) return INVALID_SERIAL_PORT;
   
+  if (memcmp(pcPortName, "tcp:", 4) == 0) {
+    struct addrinfo *addr, *rp;
+    char *addrstr = strdup(pcPortName + 4);
+    if (addrstr == NULL) {
+      printf("Error: strdup\n");
+      return INVALID_SERIAL_PORT;
+    }
+    char *colon = strrchr(addrstr, ':');
+    char *portstr;
+
+    // Set time-out to 300 miliseconds only for TCP port
+    timeout.tv_usec = 300000;
+
+    if (colon) {
+      portstr = colon + 1;
+      *colon = '\0';
+    } else
+      portstr = "7901";
+
+    int s = getaddrinfo(addrstr, portstr, NULL, &addr);
+    if (s != 0) {
+      printf("Error: getaddrinfo: %s\n", gai_strerror(s));
+      return INVALID_SERIAL_PORT;
+    }
+
+    int sfd;
+    for (rp = addr; rp != NULL; rp = rp->ai_next) {
+      sfd = socket(rp->ai_family, rp->ai_socktype,
+		   rp->ai_protocol);
+      if (sfd == -1)
+	continue;
+
+      if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1)
+	break;
+
+      close(sfd);
+    }
+
+    if (rp == NULL) {               /* No address succeeded */
+      printf("Error: Could not connect\n");
+      return INVALID_SERIAL_PORT;
+    }
+
+    freeaddrinfo(addr);
+    free(addrstr);
+
+    sp->fd = sfd;
+
+    int one = 1;
+    setsockopt(sp->fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
+    return sp;
+  }
+
   sp->fd = open(pcPortName, O_RDWR | O_NOCTTY | O_NDELAY | O_NONBLOCK);
   if(sp->fd == -1) {
     uart_close(sp);
@@ -133,7 +201,7 @@ void uart_close(const serial_port sp) {
   free(sp);
 }
 
-bool uart_receive(const serial_port sp, byte_t* pbtRx, size_t pszMaxRxLen, size_t* pszRxLen) {
+bool uart_receive(const serial_port sp, uint8_t* pbtRx, size_t pszMaxRxLen, size_t* pszRxLen) {
   int res;
   int byteCount;
   fd_set rfds;
@@ -192,7 +260,7 @@ bool uart_receive(const serial_port sp, byte_t* pbtRx, size_t pszMaxRxLen, size_
   return true;
 }
 
-bool uart_send(const serial_port sp, const byte_t* pbtTx, const size_t szTxLen) {
+bool uart_send(const serial_port sp, const uint8_t* pbtTx, const size_t szTxLen) {
   int32_t res;
   size_t szPos = 0;
   fd_set rfds;

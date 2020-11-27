@@ -19,7 +19,7 @@ module hi_reader(
     output ssp_frame, ssp_din, ssp_clk;
     output dbg;
     input [1:0] subcarrier_frequency;
-	input [2:0] minor_mode;
+	input [3:0] minor_mode;
 
 assign adc_clk = ck_1356meg;  // sample frequency is 13,56 MHz
 
@@ -30,16 +30,16 @@ reg after_hysteresis, after_hysteresis_prev, after_hysteresis_prev_prev;
 reg [11:0] has_been_low_for;
 always @(negedge adc_clk)
 begin
-    if(& adc_d[7:0]) after_hysteresis <= 1'b1;
-    else if(~(| adc_d[7:0])) after_hysteresis <= 1'b0;
+    if (& adc_d[7:0]) after_hysteresis <= 1'b1;
+    else if (~(| adc_d[7:0])) after_hysteresis <= 1'b0;
 
-    if(after_hysteresis)
+    if (after_hysteresis)
     begin
-        has_been_low_for <= 7'b0;
+        has_been_low_for <= 12'd0;
     end
     else
     begin
-        if(has_been_low_for == 12'd4095)
+        if (has_been_low_for == 12'd4095)
         begin
             has_been_low_for <= 12'd0;
             after_hysteresis <= 1'b1;
@@ -139,7 +139,7 @@ begin
     // These are the correlators: we correlate against in-phase and quadrature
     // versions of our reference signal, and keep the (signed) results or the
     // resulting amplitude to send out later over the SSP.
-    if(corr_i_cnt == 6'd0)
+    if (corr_i_cnt == 6'd0)
     begin
         if (minor_mode == `FPGA_HF_READER_MODE_SNIFF_AMPLITUDE)
         begin
@@ -213,7 +213,7 @@ begin
     end
 
 	// for each Q/I pair report two reader signal samples when sniffing. Store the 2nd.
-    if(corr_i_cnt == 6'd32)
+    if (corr_i_cnt == 6'd32)
         after_hysteresis_prev <= after_hysteresis;
 
     // Then the result from last time is serialized and send out to the ARM.
@@ -221,10 +221,10 @@ begin
     // ssp_clk should be the adc_clk divided by 64/16 = 4. 
 	// ssp_clk frequency = 13,56MHz / 4 = 3.39MHz
 
-    if(corr_i_cnt[1:0] == 2'b00)
+    if (corr_i_cnt[1:0] == 2'b00)
     begin
         // Don't shift if we just loaded new data, obviously.
-        if(corr_i_cnt != 6'd0)
+        if (corr_i_cnt != 6'd0)
         begin
             corr_i_out[7:0] <= {corr_i_out[6:0], corr_q_out[7]};
             corr_q_out[7:1] <= corr_q_out[6:0];
@@ -235,6 +235,16 @@ end
 
 
 // ssp clock and frame signal for communication to and from ARM
+//                _____       _____       _____       _
+// ssp_clk       |     |_____|     |_____|     |_____|
+//                   _____
+// ssp_frame     ___|     |____________________________
+//                ___________ ___________ ___________ _
+// ssp_d_in      X___________X___________X___________X_
+//
+// corr_i_cnt    0  1  2  3  4  5  6  7  8  9 10 11 12 ...
+//
+
 reg ssp_clk;
 reg ssp_frame;
 
@@ -247,15 +257,28 @@ begin
 
 	// set ssp_frame signal for corr_i_cnt = 1..3
 	// (send one frame with 16 Bits)
-    if (corr_i_cnt == 6'd2)
+    if (corr_i_cnt == 6'd1)
         ssp_frame <= 1'b1;
-    if (corr_i_cnt == 6'd14)
+    if (corr_i_cnt == 6'd3)
         ssp_frame <= 1'b0;
 end
 
 
 assign ssp_din = corr_i_out[7];
 
+
+// a jamming signal
+reg jam_signal;
+reg [3:0] jam_counter;
+
+always @(negedge adc_clk)
+begin
+	if (corr_i_cnt == 6'd0)
+	begin
+		jam_counter <= jam_counter + 1;
+		jam_signal <= jam_counter[1] ^ jam_counter[3];
+	end
+end
 
 // Antenna drivers
 reg pwr_hi, pwr_oe4;
@@ -272,10 +295,15 @@ begin
         pwr_hi  = ck_1356meg & ~ssp_dout;
         pwr_oe4 = 1'b0;
     end
+    else if (minor_mode == `FPGA_HF_READER_MODE_SEND_JAM)
+	begin
+        pwr_hi  = ck_1356meg & jam_signal;
+        pwr_oe4 = 1'b0;
+	end
 	else if (minor_mode == `FPGA_HF_READER_MODE_SNIFF_IQ        
 		  || minor_mode == `FPGA_HF_READER_MODE_SNIFF_AMPLITUDE
 		  || minor_mode == `FPGA_HF_READER_MODE_SNIFF_PHASE)
-	begin
+	begin // all off
 		pwr_hi  = 1'b0;
 		pwr_oe4 = 1'b0;
 	end
@@ -284,7 +312,7 @@ begin
 		pwr_hi  = ck_1356meg;
 		pwr_oe4 = 1'b0;
 	end
-end
+end 
 
 // always on
 assign pwr_oe1 = 1'b0;

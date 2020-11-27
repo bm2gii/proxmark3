@@ -15,6 +15,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifdef _MSC_VER
+#define PACKED
+#else
+#define PACKED __attribute__((packed))
+#endif
+
 #ifndef ROTR
 # define ROTR(x,n) (((uintmax_t)(x) >> (n)) | ((uintmax_t)(x) << ((sizeof(x) * 8) - (n))))
 #endif
@@ -101,6 +107,7 @@ extern char *sprint_hex_inrow_ex(const uint8_t *data, const size_t len, const si
 extern char *sprint_bin(const uint8_t * data, const size_t len);
 extern char *sprint_bin_break(const uint8_t *data, const size_t len, const uint8_t breaks);
 extern char *sprint_ascii_ex(const uint8_t *data, const size_t len, const size_t min_str_len);
+extern char *sprint_ascii(const uint8_t *data, const size_t len);
 
 extern void num_to_bytes(uint64_t n, size_t len, uint8_t* dest);
 extern uint64_t bytes_to_num(uint8_t* src, size_t len);

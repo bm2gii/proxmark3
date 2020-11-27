@@ -20,7 +20,6 @@
 #include "fpgaloader.h"
 #include "proxmark3.h"
 #include "usb_cdc.h"
-#include "cmd.h"
 #include "protocols.h"
 #include "apps.h"
 
@@ -95,7 +94,7 @@ static bool IsTrailerAccessAllowed(uint8_t blockNo, uint8_t keytype, uint8_t act
 			break;
 		}
 		case AC_KEYB_WRITE: {
-			return ((keytype == AUTHKEYA && (AC == 0x00 || AC == 0x04))
+			return ((keytype == AUTHKEYA && (AC == 0x00 || AC == 0x01))
 				 || (keytype == AUTHKEYB && (AC == 0x04 || AC == 0x03)));
 			break;
 		}
@@ -542,8 +541,8 @@ void MifareSim(uint8_t flags, uint8_t exitAfterNReads, uint8_t cardsize, uint8_t
 					break;
 				}
 
-				if(receivedCmd_dec[0] == ISO14443A_CMD_READBLOCK
-					|| receivedCmd_dec[0] == ISO14443A_CMD_WRITEBLOCK
+				if(receivedCmd_dec[0] == MIFARE_CMD_READBLOCK
+					|| receivedCmd_dec[0] == MIFARE_CMD_WRITEBLOCK
 					|| receivedCmd_dec[0] == MIFARE_CMD_INC
 					|| receivedCmd_dec[0] == MIFARE_CMD_DEC
 					|| receivedCmd_dec[0] == MIFARE_CMD_RESTORE
@@ -562,7 +561,7 @@ void MifareSim(uint8_t flags, uint8_t exitAfterNReads, uint8_t cardsize, uint8_t
 					}
 				}
 
-				if (receivedCmd_dec[0] == ISO14443A_CMD_READBLOCK) {
+				if (receivedCmd_dec[0] == MIFARE_CMD_READBLOCK) {
 					uint8_t blockNo = receivedCmd_dec[1];
 					emlGetMem(response, blockNo, 1);
 					if (IsSectorTrailer(blockNo)) {
@@ -593,7 +592,7 @@ void MifareSim(uint8_t flags, uint8_t exitAfterNReads, uint8_t cardsize, uint8_t
 					break;
 				}
 
-				if (receivedCmd_dec[0] == ISO14443A_CMD_WRITEBLOCK) {
+				if (receivedCmd_dec[0] == MIFARE_CMD_WRITEBLOCK) {
 					uint8_t blockNo = receivedCmd_dec[1];
 					EmSend4bit(mf_crypto1_encrypt4bit(pcs, CARD_ACK));
 					FpgaDisableTracing();
